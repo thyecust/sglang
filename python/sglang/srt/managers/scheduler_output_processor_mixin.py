@@ -13,6 +13,8 @@ if TYPE_CHECKING:
         ScheduleBatch,
     )
 
+import logging
+logger = logging.getLogger(__name__)
 
 class SchedulerOutputProcessorMixin:
     """
@@ -71,6 +73,10 @@ class SchedulerOutputProcessorMixin:
                     self.token_to_kv_pool_allocator.free(batch.out_cache_loc[j : j + 1])
                     continue
 
+                if req.tokenizer.think_end_id and hasattr(req, 'is_in_reasoning'):
+                    if next_token_ids == req.tokenizer.think_end_id:
+                        req.is_in_reasoning = False
+
                 if req.is_chunked <= 0:
                     # req output_ids are set here
                     req.output_ids.append(next_token_id)
@@ -114,7 +120,7 @@ class SchedulerOutputProcessorMixin:
                             .tolist()
                         )
 
-                    if req.grammar is not None:
+                    if req.grammar is not None and not req.is_in_reasoning:
                         req.grammar.accept_token(next_token_id)
                         req.grammar.finished = req.finished()
                 else:
@@ -203,7 +209,7 @@ class SchedulerOutputProcessorMixin:
         for i, (req, next_token_id) in enumerate(zip(batch.reqs, next_token_ids)):
             if req.is_retracted:
                 continue
-
+            logger.debug(f"next_token_id: {next_token_id}")
             if self.enable_overlap and req.finished():
                 # Free the one extra delayed token
                 if self.page_size == 1:
@@ -222,6 +228,9 @@ class SchedulerOutputProcessorMixin:
                 # speculative worker will solve the output_ids in speculative decoding
                 req.output_ids.append(next_token_id)
 
+            if req.tokenizer.think_end_id and hasattr(req, 'is_in_reasoning'):
+                if next_token_ids == req.tokenizer.think_end_id:
+                    req.is_in_reasoning = False
             req.check_finished()
             if req.finished():
                 self.tree_cache.cache_finished_req(req)
@@ -250,7 +259,7 @@ class SchedulerOutputProcessorMixin:
                     logits_output.hidden_states[i].cpu().clone().tolist()
                 )
 
-            if req.grammar is not None and batch.spec_algorithm.is_none():
+            if req.grammar is not None and batch.spec_algorithm.is_none() and not req.is_in_reasoning:
                 req.grammar.accept_token(next_token_id)
                 req.grammar.finished = req.finished()
 

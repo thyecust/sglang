@@ -85,6 +85,7 @@ from sglang.srt.managers.schedule_policy import (
 from sglang.srt.managers.scheduler_output_processor_mixin import (
     SchedulerOutputProcessorMixin,
 )
+from sglang.srt.reasoning_parser import ReasoningParser
 from sglang.srt.managers.session_controller import Session
 from sglang.srt.managers.tp_worker import TpModelWorker
 from sglang.srt.managers.tp_worker_overlap_thread import TpModelWorkerClient
@@ -200,6 +201,11 @@ class Scheduler(SchedulerOutputProcessorMixin):
 
         # Init tokenizer
         self.init_tokenizer()
+        if self.tokenizer and self.server_args.reasoning_parser:
+            self.tokenizer.think_end_id = self.tokenizer.encode(
+                ReasoningParser(model_type=self.server_args.reasoning_parser, stream_reasoning=False).detector.think_end_token,
+                add_special_tokens=False
+            )
 
         # Check whether overlap can be enabled
         if not self.is_generation:
@@ -648,6 +654,9 @@ class Scheduler(SchedulerOutputProcessorMixin):
             )
             req.tokenizer = self.tokenizer
 
+            if self.server_args.reasoning_parser:
+                req.is_in_reasoning = True
+
             if (
                 recv_req.session_params is not None
                 and recv_req.session_params.id is not None
@@ -661,6 +670,8 @@ class Scheduler(SchedulerOutputProcessorMixin):
             # Create a new request from a previous session
             session = self.sessions[recv_req.session_params.id]
             req = session.create_req(recv_req, self.tokenizer)
+            if self.server_args.reasoning_parser:
+                req.is_in_reasoning = True
             if isinstance(req.finished_reason, FINISH_ABORT):
                 self._add_request_to_queue(req)
                 return
@@ -999,7 +1010,10 @@ class Scheduler(SchedulerOutputProcessorMixin):
         # Handle DP attention
         if self.server_args.enable_dp_attention:
             ret, _ = self.prepare_dp_attn_batch(ret)
-
+        if ret is not None and self.server_args.reasoning_parser and ret.sampling_info is not None:
+            ret.sampling_info.disable_grammar_for_reasoning = True
+            if len(ret.reqs) > 0:
+                ret.sampling_info.disable_grammar_for_reasoning = ret.reqs[0].is_in_reasoning
         return ret
 
     def get_new_batch_prefill(self) -> Optional[ScheduleBatch]:

@@ -52,6 +52,9 @@ class SamplingBatchInfo:
     custom_logit_processor: Optional[
         Dict[int, Tuple[CustomLogitProcessor, torch.Tensor]]
     ] = None
+    
+    # Reasoning Section
+    disable_grammar_for_reasoning: bool = False
 
     # Device
     device: str = "cuda"
@@ -194,7 +197,7 @@ class SamplingBatchInfo:
             # Used in the non-overlap mode
             self.penalizer_orchestrator.apply(logits)
 
-        if self.vocab_mask is not None:
+        if self.vocab_mask is not None and not self.disable_grammar_for_reasoning:
             self.apply_mask_func(logits=logits, vocab_mask=self.vocab_mask)
 
     def filter_batch(self, keep_indices: List[int], keep_indices_device: torch.Tensor):
