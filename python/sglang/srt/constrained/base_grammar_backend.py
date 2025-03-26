@@ -168,6 +168,67 @@ class BaseGrammarBackend(ABC):
         with self.cache_lock:
             self.cache.clear()
 
+class ReasonerGrammarObject(ABC):
+    def __init__(self, grammar=None, think_end_id=0):
+        self.grammar = grammar
+        self.idx = 0
+        self.vocab_mask = None
+        self.think_end_id = think_end_id
+        self.is_in_reasoing = True
+
+    @property
+    def finished(self):
+        return self.grammar.finished
+
+    @finished.setter
+    def finished(self, finished):
+        self.grammar.finished = finished
+
+    def result(self, timeout=0.05):
+        print(f"!!! result")
+        self.grammar = self.grammar.result(timeout)
+        return self
+
+    def allocate_vocab_mask(
+        self, vocab_size: int, batch_size: int, device
+    ) -> torch.Tensor:
+        return self.grammar.allocate_vocab_mask(vocab_size, batch_size, device)
+
+    def fill_vocab_mask(self, vocab_mask: torch.Tensor, idx: int) -> None:
+        print(f"!!! fill_vocab_mask")
+        self.vocab_mask, self.idx = vocab_mask, idx
+
+    def move_vocab_mask(self, vocab_mask: torch.Tensor, device) -> torch.Tensor:
+        return self.grammar.move_vocab_mask(vocab_mask, device)
+
+    @property
+    def apply_vocab_mask(self):
+        return self.grammar.apply_vocab_mask
+
+    def accept_token(self, token: int):
+        print(f"!!! accept_token")
+        if token == self.think_end_id:
+            self.is_in_reasoing = False
+            self.grammar.fill_vocab_mask(self.vocab_mask, self.idx)
+
+        if not self.is_in_reasoing and token != self.think_end_id:
+            self.grammar.accept_token(token)
+
+class ReasonerGrammarBackend(ABC):
+    def __init__(self, grammar_backend = None, think_end_id = 0):
+        self.grammar_backend = grammar_backend
+        self.think_end_id = think_end_id
+
+    def get_cached_value(self, key: Tuple[str, str]) -> Optional[ReasonerGrammarObject]:
+        grammar = self.grammar_backend.get_cached_value(key)
+        return ReasonerGrammarObject(grammar, self.think_end_id) if grammar else None
+
+    def get_future_value(self, key: Tuple[str, str]) -> Future:
+        grammar = self.grammar_backend.get_future_value(key)
+        return ReasonerGrammarObject(grammar, self.think_end_id)
+
+    def reset(self):
+        self.grammar_backend.reset()
 
 def create_grammar_backend(server_args: ServerArgs, tokenizer, vocab_size):
     if server_args.grammar_backend == "outlines":
@@ -190,5 +251,7 @@ def create_grammar_backend(server_args: ServerArgs, tokenizer, vocab_size):
         )
     else:
         raise ValueError(f"Invalid grammar backend: {server_args.grammar_backend}")
-
+    
+    if server_args.reasoning_parser and hasattr(tokenizer, "think_end_id"):
+        grammar_backend = ReasonerGrammarBackend(grammar_backend, tokenizer.think_end_id)
     return grammar_backend
