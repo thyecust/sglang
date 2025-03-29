@@ -184,10 +184,6 @@ class ReasonerGrammarObject(ABC):
     def finished(self, finished):
         self.grammar.finished = finished
 
-    def result(self, timeout=0.05):
-        self.grammar = self.grammar.result(timeout)
-        return self
-
     def allocate_vocab_mask(
         self, vocab_size: int, batch_size: int, device
     ) -> torch.Tensor:
@@ -223,8 +219,13 @@ class ReasonerGrammarBackend(ABC):
         return ReasonerGrammarObject(grammar, self.think_end_id) if grammar else None
 
     def get_future_value(self, key: Tuple[str, str]) -> Future:
-        grammar = self.grammar_backend.get_future_value(key)
-        return ReasonerGrammarObject(grammar, self.think_end_id)
+        grammar = Future()
+        self.grammar_backend.get_future_value(key).add_done_callback(
+            lambda f: grammar.set_result(
+                ReasonerGrammarObject(f.result(), self.think_end_id)
+            )
+        )
+        return grammar
 
     def reset(self):
         self.grammar_backend.reset()
