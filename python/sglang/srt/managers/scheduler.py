@@ -235,8 +235,8 @@ class Scheduler(
         
         if self.server_args.reasoning_parser and self.tokenizer:
             self.tokenizer.think_end_id = self.tokenizer.convert_tokens_to_ids(
-                ReasoningParser(model_type=self.server_args.model_type).detector.think_end_token
-            )[0]
+                ReasoningParser(model_type=self.server_args.reasoning_parser).detector.think_end_token
+            )
 
         # Check whether overlap can be enabled
         if not self.is_generation:
